@@ -113,7 +113,8 @@ client.on('connect', async () => {
 
 client.on('message', async (topic, message) => {
     if(topic === lockTopic){
-        const lockerNumber = message.toString().trim();
+        const lockerNumberStr = message.toString().trim(); // e.g. "5"
+        const lockerNumber = parseInt(lockerNumberStr, 10); // Convert to number if needed
         await updateLockerStatus(lockerNumber, "LOCKED")
     }
   if (topic === scanTopic) {
