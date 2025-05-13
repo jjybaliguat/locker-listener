@@ -6,6 +6,7 @@ require('dotenv').config();
 const scanTopic = 'locker/scan';
 const unlockTopic = 'locker/unlock';
 const deniedTopic = 'locker/denied';
+const lockTopic = 'locker/lock';
 
 // MongoDB URI and client
 const mongoUri = process.env.MONGODB_URI;
@@ -51,6 +52,35 @@ async function findInstructorWithLocker(qrCode) {
   }
 }
 
+/**
+ * Update the status of a locker by lockerNumber
+ * @param {string|number} lockerNumber - The locker number to update
+ * @param {string} status - New status (e.g., "LOCKED", "UNLOCKED")
+ */
+
+async function updateLockerStatus(lockerNumber, status = "LOCKED") {
+  try {
+    await connectMongo()
+    const lockerCollection = db.collection("Locker");
+
+    const lockerNum = parseInt(lockerNumber, 10);
+    const result = await lockerCollection.updateOne(
+      { lockerNumber: lockerNum },
+      { $set: { status, updatedAt: new Date() } }
+    );
+
+    if (result.modifiedCount > 0) {
+      console.log(`🔒 Locker ${lockerNum} status updated to "${status}".`);
+    } else {
+      console.warn(`⚠️ Locker ${lockerNum} not found or status unchanged.`);
+    }
+  } catch (error) {
+    console.error('❌ Failed to update locker status:', error);
+  } finally {
+    await mongoClient.close();
+  }
+}
+
 async function connectMongo() {
   try {
     await mongoClient.connect();
@@ -72,9 +102,20 @@ client.on('connect', async () => {
       console.log(`📡 Listening for QR codes on topic: ${scanTopic}`);
     }
   });
+  client.subscribe(lockTopic, (err) => {
+    if (err) {
+      console.error('❌ Failed to subscribe to scan topic:', err);
+    } else {
+      console.log(`📡 Listening on topic: ${lockTopic}`);
+    }
+  });
 });
 
 client.on('message', async (topic, message) => {
+    if(topic === lockTopic){
+        const lockerNumber = message.toString().trim();
+        await updateLockerStatus(lockerNumber, "LOCKED")
+    }
   if (topic === scanTopic) {
     const qrCode = message.toString().trim();
     console.log(`📥 QR Code received: ${qrCode}`);
@@ -90,6 +131,7 @@ client.on('message', async (topic, message) => {
         if (lockerNum >= 1 && lockerNum <= 15) {
           const payload = JSON.stringify({ locker: lockerNum });
           client.publish(unlockTopic, payload);
+          updateLockerStatus(lockerNum, "UNLOCKED");
           console.log(`✅ Access granted. Sent unlock for locker ${lockerNum}`);
         } else {
           console.warn('⚠️ Invalid locker number in DB entry');
